@@ -758,12 +758,17 @@ class FileSystemCache(BaseCache):
         entries = self._list_dir()
         now = time()
         for idx, fname in enumerate(entries):
+            remove = False
             try:
-                remove = False
                 with open(fname, 'rb') as f:
                     expires = pickle.load(f)
                 remove = (expires != 0 and expires <= now) or idx % 3 == 0
+            except BaseException:
+                # Regardless of the reason for failing to read data,
+                # the cache is no longer valid.
+                remove = True
 
+            try:
                 if remove:
                     os.remove(fname)
             except (IOError, OSError):
@@ -788,16 +793,25 @@ class FileSystemCache(BaseCache):
 
     def get(self, key):
         filename = self._get_filename(key)
+        remove = False
         try:
             with open(filename, 'rb') as f:
                 pickle_time = pickle.load(f)
                 if pickle_time == 0 or pickle_time >= time():
                     return pickle.load(f)
                 else:
-                    os.remove(filename)
-                    return None
+                    remove = True
+        except BaseException:
+            # Regardless of the reason for failing to read data,
+            # the cache is no longer valid.
+            remove = True
+        try:
+            if remove:
+                os.remove(filename)
         except (IOError, OSError, pickle.PickleError):
-            return None
+            pass
+
+        return None
 
     def add(self, key, value, timeout=None):
         filename = self._get_filename(key)
@@ -851,10 +865,19 @@ class FileSystemCache(BaseCache):
                 if pickle_time == 0 or pickle_time >= time():
                     return True
                 else:
-                    os.remove(filename)
-                    return False
+                    remove = True
+
+        except BaseException:
+            # Regardless of the reason for failing to read data,
+            # the cache is no longer valid.
+            remove = True
+        try:
+            if remove:
+                os.remove(filename)
         except (IOError, OSError, pickle.PickleError):
-            return False
+            pass
+
+        return False
 
 
 class UWSGICache(BaseCache):
